@@ -1,8 +1,8 @@
 config = {
-    'summoner_seed_id': '209578564',
-    'region': 'euw1',
+    'summoner_seed_name': 'tsktsktsktsk',
+    'region': 'na1',
     'include_timeline': False,
-    'api_key': 'RGAPI-1a214875-a218-4132-9adb-550a55a278b5',
+    'api_key': 'RGAPI-eb63e9eb-a56c-437f-a3b8-154a5106518b',
     'is_production_key': False,
     'mongodb': {
         'host': 'localhost',

@@ -28,15 +28,14 @@ if __name__=="__main__":
 
     api = RiotWatcher(config['api_key'])
 
-
     if action=="top":
         yesterday = date.today() - timedelta(1)
         crawler = TopLolCrawler(api,db_client=db, include_timeline=config["include_timeline"])
         crawler.start(regions=['euw1', 'na', 'kr', 'eune'], leagues=['challenger'])
     else:
         ## Initialise crawler
-        crawler =  LolCrawler(api, db_client=db, include_timeline=config["include_timeline"], region = "euw1")
-        crawler.start(config['summoner_seed_id'])
+        crawler =  LolCrawler(api, db_client=db, include_timeline=config["include_timeline"], region = "na1")
+        crawler.start(config['summoner_seed_name'])
 
 
 
