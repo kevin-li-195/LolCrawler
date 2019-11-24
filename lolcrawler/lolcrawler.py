@@ -8,7 +8,9 @@ import logging
 import time
 from datetime import datetime, date, timedelta
 import itertools
-from requests.exceptions import SSLError
+from requests.exceptions import SSLError, HTTPError
+from unidecode import unidecode
+
 from .extract_match import extract_match_infos
 
 logger = logging.getLogger(__name__)
@@ -61,46 +63,37 @@ class LolCrawlerBase():
             sys.exit(1)
 
     def flush(self):
-        self.summoner_ids = []
+        self.summoner_names = []
         self.match_ids = []
 
     def crawl_matchlist(self, summoner_name):
         """Crawls matchlist of given summoner,
         stores it and saves the matchIds"""
         logger.debug('Getting partial matchlist of summoner %s' % (summoner_name))
-        summoner = self.api.summoner.by_name(summoner_name = summoner_name, region = self.region)
+        summoner = self.api.summoner.by_name(summoner_name = unidecode(summoner_name), region = self.region)
         account_id = summoner["accountId"]
         matchlist = self.api.match.matchlist_by_account(encrypted_account_id = account_id, region = self.region)
         matchlist["extractions"] = {"region": self.region}
-        self._store(identifier=account_id, entity_type=MATCHLIST_COLLECTION, entity=matchlist, upsert=True)
+        self._store(identifier=summoner_name, entity_type=MATCHLIST_COLLECTION, entity=matchlist, upsert=True)
         self.summoner_names_done.append(summoner_name)
         match_ids = [x['gameId'] for x in matchlist['matches']]
         self.match_ids.extend(match_ids)
         return match_ids
 
-    def crawl_complete_matchlist(self, summoner_name,  region=None,  **kwargs):
+    def crawl_past_matchlist_by_time(self, summoner_name, region, begin_time, end_time, **kwargs):
         """Crawls complete matchlist by going through paginated matchlists of given summoner,
         stores it and saves the matchIds"""
 
         logger.debug('Getting complete matchlist of summoner %s' % (summoner_name))
-        more_matches=True
+        summoner = self.api.summoner.by_name(summoner_name = unidecode(summoner_name), region = region)
+        account_id = summoner["accountId"]
         ## Start with empty matchlist
-        matchlist={"matches": [], "totalGames": 0}
-        begin_index=0
-        while more_matches:
-            new_matchlist = self.api.get_match_list(summoner_name=summoner_name,
-                                                    begin_index=begin_index,
-                                                    end_index=begin_index + MATCHLIST_PAGE_LIMIT,
-                                                    region=region,  **kwargs)
-            if "matches" in new_matchlist.keys():
-                matchlist["matches"] = matchlist["matches"] + new_matchlist["matches"]
-                matchlist["totalGames"] = matchlist["totalGames"] + new_matchlist["totalGames"]
-                begin_index += MATCHLIST_PAGE_LIMIT
-            else:
-                more_matches=False
-
-        region = region if region else self.region
-        matchlist["extractions"] = {"region": region}
+        matchlist = self.api.match.matchlist_by_account(encrypted_account_id=account_id,
+                                                begin_time=begin_time,
+                                                end_time=end_time,
+                                                region=region,
+                                                **kwargs)
+        matchlist["extractions"] = { "region" : region }
         self._store(identifier=summoner_name, entity_type=MATCHLIST_COLLECTION, entity=matchlist, upsert=True)
         self.summoner_names_done.append(summoner_name)
         match_ids = [x['gameId'] for x in matchlist['matches']]
@@ -114,17 +107,29 @@ class LolCrawlerBase():
         match_in_db = self.db_client[MATCH_COLLECTION].find({"_id": match_id})
         if match_in_db.count() == 0:
             logger.debug('Crawling match %s' % (match_id))
-            match = self.api.match.by_id(match_id=match_id, region=self.region)
-            print(match)
+            try:
+                match = self.api.match.by_id(match_id=match_id, region=self.region)
+            except HTTPError as e:
+                logger.error(e)
+                logger.error("Got an HTTP error (above) while crawling match with matchId %s. Trying again." % (match_id))
+                time.sleep(2)
+                try:
+                    match = self.api.match.by_id(match_id=match_id, region=self.region)
+                except HTTPError as e:
+                    logger.error(e)
+                    logger.error("Failed crawling %s while attempting again. Skipping. Exception above." % (match_id))
+                    return
+                # Try again
             try:
                 match["extractions"] = extract_match_infos(match)
                 self._store(identifier=match_id, entity_type=MATCH_COLLECTION, entity=match)
-                summoner_ids = [x['player']['summonerId'] for x in match['participantIdentities']]
+                summoner_names = [x['player']['summonerName'] for x in match['participantIdentities']]
                 ## remove summoner ids the crawler has already seen
-                new_summoner_ids = list(set(summoner_ids) - set(self.summoner_names_done))
-                self.summoner_ids = new_summoner_ids + self.summoner_ids
-            except:
+                new_summoner_names = list(set(summoner_names) - set(self.summoner_names_done))
+                self.summoner_names = new_summoner_names + self.summoner_names
+            except Exception as e:
                 logger.error('Could not find participant data in match with id %s' % (match_id))
+                print(e)
         else:
             logger.debug("Skipping match with matchId %s. Already in DB" % (match_id))
 
@@ -141,7 +146,12 @@ class LolCrawler(LolCrawlerBase):
             logger.info("No summoner ids found in database, starting with seed summoner")
         else:
             for i in range(0, 100):
-                self.summoner_names += [last_summoner_cursor.next()["_id"]]
+                try:
+                    next_summoner_in_mongo = last_summoner_cursor.next()
+                    self.summoner_names += [next_summoner_in_mongo["_id"]]
+                except StopIteration:
+                    break
+            self.summoner_names.append(start_summoner_name)
             logger.info("Starting with latest summoner ids in database")
         while True:
             self.crawl()
@@ -151,50 +161,49 @@ class LolCrawler(LolCrawlerBase):
         logger.debug("Crawling summoner {summoner_name}".format(summoner_name=summoner_name))
 
         match_ids = self.crawl_matchlist(summoner_name)
-        ## Choose from last ten matches
-        random_match_id = np.random.choice(range(0, min(10, len(match_ids))))
-        match_id = match_ids[random_match_id]
-        self.crawl_match(match_id)
+        ## Crawl all match_ids
+        for match_id in match_ids:
+            self.crawl_match(match_id)
 
 class TopLolCrawler(LolCrawler):
     """Crawl all matches from all challengers"""
 
-    def crawl(self, region, league, season):
+    def crawl(self, region, league):
+        self.region = region
         '''Crawl all matches from players in given region, league and season'''
-        logger.info('Crawling matches for %s players in %s, season %s' % (league, region, season))
+        logger.info('Crawling matches for %s players in %s' % (league, region))
         ## Add ids of solo q top summoners to self.summmone_ids
-        self._get_top_summoner_ids(region, league, season)
+        self._get_top_summoner_names(region, league)
         ## Get all summoner ids of the league
-        logger.info("Crawling matchlists of %i players" % (len(self.summoner_ids)))
+        logger.info("Crawling matchlists of %i players" % (len(self.summoner_names)))
         ## Get matchlists for all summoners
-        self._get_top_summoner_matchlists(region, league, season)
+        self._get_top_summoner_matchlists(region, league)
         logger.info("Crawling %i matches" %(len(self.match_ids)))
-        self._get_top_summoners_matches(region)
+        self._get_top_summoners_matches()
         self.flush()
         return None
 
-    def _get_top_summoner_ids(self, region, league, season):
+    def _get_top_summoner_names(self, region, league):
         queue = "RANKED_SOLO_5x5"
         if league == 'challenger':
-            league_list = self.api.get_challenger(region=region, queue=queue)
+            league_list = self.api.league.challenger_by_queue(region=region, queue=queue)
+        elif league == 'grandmaster':
+            league_list = self.api.league.grandmaster_by_queue(region=region, queue=queue)
         elif league == 'master':
-            league_list = self.api.get_master(region=region, queue=queue)
-        self.summoner_ids = [x["playerOrTeamId"] for x in league_list["entries"]]
+            league_list = self.api.league.masters_by_queue(region=region, queue=queue)
+        self.summoner_names = [x["summonerName"] for x in league_list["entries"]]
         return None
 
-
-    def _get_top_summoner_matchlists(self, region, league, season):
-        '''Download and store matchlists for self.summoner_ids'''
-        for summoner_id in list(set(self.summoner_ids)):
+    def _get_top_summoner_matchlists(self, region, league):
+        '''Download and store matchlists for self.summoner_names'''
+        for summoner_name in list(set(self.summoner_names)):
             try:
-                self.crawl_complete_matchlist(summoner_id=summoner_id,
+                self.crawl_past_matchlist_by_time(summoner_name=summoner_name,
                                               region=region,
                                               begin_time=self.begin_time,
-                                              end_time=self.end_time,
-                                              season=season)
-            except LoLException as e:
-                logger.error(e)
-            except SSLError as e:
+                                              end_time=self.end_time
+                                              )
+            except Exception as e:
                 logger.error(e)
         return None
 
@@ -202,18 +211,15 @@ class TopLolCrawler(LolCrawler):
         for match_id in list(set(self.match_ids)):
             try:
                 self.crawl_match(match_id)
-            except LoLException as e:
-                logger.error(e)
-            except SSLError as e:
+            except Exception as e:
                 logger.error(e)
         return None
 
     def start(self,
-              begin_time=date.today() - timedelta(1),
-              regions=['euw', 'kr', 'na'],
+              begin_time=date.today() - timedelta(7),
+              regions=['euw', 'kr', 'na1'],
               end_time = date.today(),
-              leagues=['challenger', 'master'],
-              seasons=["SEASON2016"]
+              leagues=['challenger', 'master']
               ):
 
         self.begin_time = int(begin_time.strftime('%s')) * 1000
@@ -224,7 +230,7 @@ class TopLolCrawler(LolCrawler):
 
         logger.info('Crawling matches between %s and %s' % (begin_time_log, end_time_log))
 
-        for region, league, season in itertools.product(regions, leagues, seasons):
-            self.crawl(region=region, league=league, season=season)
+        for region, league in itertools.product(regions, leagues):
+            self.crawl(region=region, league=league)
         logger.info('Finished crawling')
 

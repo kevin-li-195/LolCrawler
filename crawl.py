@@ -5,6 +5,20 @@ from pymongo import MongoClient
 from datetime import date, timedelta
 from clint import arguments
 
+ALL_REGIONS = [
+        "na1",
+        "ru",
+        "kr",
+        "br1",
+        "oc1",
+        "jp1",
+        "eun1",
+        "euw1",
+        "tr1",
+        "la1",
+        "la2"
+        ]
+
 if __name__=="__main__":
 
     args = arguments.Args()
@@ -21,23 +35,17 @@ if __name__=="__main__":
 
     region=config["region"]
 
-    #if config['is_production_key']:
-    #    limits = (Limit(3000,10), Limit(180000,600), )
-    #else:
-    #    limits = (Limit(10, 10), Limit(500, 600), )
+    # if config['is_production_key']:
+    #     limits = (Limit(3000,10), Limit(180000,600), )
+    # else:
+    #     limits = (Limit(10, 10), Limit(500, 600), )
 
     api = RiotWatcher(config['api_key'])
 
     if action=="top":
-        yesterday = date.today() - timedelta(1)
-        crawler = TopLolCrawler(api,db_client=db, include_timeline=config["include_timeline"])
-        crawler.start(regions=['euw1', 'na', 'kr', 'eune'], leagues=['challenger'])
+        crawler = TopLolCrawler(api,db_client=db, include_timeline=config["include_timeline"], region= "na1")
+        crawler.start(regions=['euw1', 'na1', 'kr', 'eun1'], leagues=['grandmaster'])
     else:
         ## Initialise crawler
         crawler =  LolCrawler(api, db_client=db, include_timeline=config["include_timeline"], region = "na1")
         crawler.start(config['summoner_seed_name'])
-
-
-
-
-

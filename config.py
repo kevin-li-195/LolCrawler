@@ -2,7 +2,7 @@ config = {
     'summoner_seed_name': 'tsktsktsktsk',
     'region': 'na1',
     'include_timeline': False,
-    'api_key': 'RGAPI-eb63e9eb-a56c-437f-a3b8-154a5106518b',
+    'api_key': 'RGAPI-b2c430d6-a6a9-44d4-b058-8df5e0e304e2',
     'is_production_key': False,
     'mongodb': {
         'host': 'localhost',

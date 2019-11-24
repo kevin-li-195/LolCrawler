@@ -16,24 +16,21 @@ def surrendered(match):
     ## Improvement suggestion: Use match timeline if available
     ## Improvement: Build prediction model based on labeled matches
 
-    match_duration = match['matchDuration']
+    match_duration = match['gameDuration']
 
     ## Cannot surrender before Minute 20
     if match_duration < 60 * 20:
-        return 0
+        return False
     ## Guess surrender by team stats
-    winner_stats = list(filter(lambda x: x['winner'], match['teams']))[0]
+    winner_stats = list(filter(lambda x: x['win'] == 'Win', match['teams']))[0]
     ## If less than 5 towers have been destroyed by winner, it is a surrender
     if winner_stats['towerKills'] < 5:
-        return 1
+        return True
     ## Cannot win a game without inhibitor kills
     if winner_stats['inhibitorKills'] == 0:
-        return 1
+        return True
     ## Matches that ended after minute 20 are more likely to be surrendered matches. Based on gut feeling.
-    if (match_duration  > 60 * 20) and (match_duration < 60 * 21):
-        return 0.5
-    return 0.05
-
+    return False
 
 def surrendered_at_20(match):
     '''Checks if the match was surrendered at 20 by one of the teams'''
@@ -106,38 +103,37 @@ def get_most_common_tier(tiers_list):
 
 def extract_patch(match_version):
     '''Extracts the patch version in format X.XX'''
-    return str(re.findall("([0-9]+\.[0-9]+)\.", match_version)[0])
+    return str(re.findall("^([0-9]+\.[0-9]+)\.", match_version)[0])
 
 def extract_minor_patch(match_version):
     '''Extracts the minor patch version as numeric value'''
-    return int(re.findall("[0-9]+\.([0-9]+)\.", match_version)[0])
+    return int(re.findall("^[0-9]+\.([0-9]+)\.", match_version)[0])
 
 def extract_major_patch(match_version):
     '''Extracts the major patch version as numeric value.
         This is equal to the season count.
     '''
-    return int(re.findall("([0-9]+)\.[0-9]+\.", match_version)[0])
+    return int(re.findall("^([0-9]+)\.[0-9]+\.", match_version)[0])
 
 
 def extract_match_infos(match):
     """Extract additional information from the raw match data
     """
     extractions = {}
-    extractions["patchMajorNumeric"] = extract_major_patch(match["matchVersion"])
-    extractions["patchMinorNumeric"] = extract_minor_patch(match["matchVersion"])
-    extractions["patch"] = extract_patch(match["matchVersion"])
+    extractions["patchMajorNumeric"] = extract_major_patch(match["gameVersion"])
+    extractions["patchMinorNumeric"] = extract_minor_patch(match["gameVersion"])
+    extractions["patch"] = extract_patch(match["gameVersion"])
 
-    tiers = [x["highestAchievedSeasonTier"] for x in match["participants"]]
-    extractions["tier"] = get_most_common_tier(tiers)
-    extractions["highestPlayerTier"] = get_highest_tier(tiers)
-    extractions["lowestPlayerTier"] = get_lowest_tier(tiers)
+    # tiers = [x["highestAchievedSeasonTier"] for x in match["participants"]]
+    # extractions["tier"] = get_most_common_tier(tiers)
+    # extractions["highestPlayerTier"] = get_highest_tier(tiers)
+    # extractions["lowestPlayerTier"] = get_lowest_tier(tiers)
 
-    extractions['surrendered'] = surrendered(match)
-    extractions['surrenderedAt20'] = surrendered_at_20(match)
+    extractions['definitely_surrendered'] = surrendered(match)
 
     ## Timeline extractions
-    if 'timeline' in match.keys():
-        extractions['winDuringBaronBuff'] = win_while_baron_buff(match)
+    # if 'timeline' in match.keys():
+        # extractions['winDuringBaronBuff'] = win_while_baron_buff(match)
     return extractions
 
 
