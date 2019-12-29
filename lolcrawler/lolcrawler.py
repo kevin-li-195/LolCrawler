@@ -70,7 +70,11 @@ class LolCrawlerBase():
         """Crawls matchlist of given summoner,
         stores it and saves the matchIds"""
         logger.debug('Getting partial matchlist of summoner %s' % (summoner_name))
-        summoner = self.api.summoner.by_name(summoner_name = unidecode(summoner_name), region = self.region)
+        try:
+            summoner = self.api.summoner.by_name(summoner_name = summoner_name, region = self.region)
+        except Exception as e:
+            logger.debug("Failed with raw summoner name; trying to use unidecode to get summoner name for %s" % summoner_name)
+            summoner = self.api.summoner.by_name(summoner_name = unidecode(summoner_name), region = self.region)
         account_id = summoner["accountId"]
         matchlist = self.api.match.matchlist_by_account(encrypted_account_id = account_id, region = self.region)
         matchlist["extractions"] = {"region": self.region}
@@ -85,7 +89,11 @@ class LolCrawlerBase():
         stores it and saves the matchIds"""
 
         logger.debug('Getting complete matchlist of summoner %s' % (summoner_name))
-        summoner = self.api.summoner.by_name(summoner_name = unidecode(summoner_name), region = region)
+        try:
+            summoner = self.api.summoner.by_name(summoner_name = summoner_name, region = self.region)
+        except Exception as e:
+            logger.debug("Failed with raw summoner name; trying to use unidecode to get summoner name for %s" % summoner_name)
+            summoner = self.api.summoner.by_name(summoner_name = unidecode(summoner_name), region = self.region)
         account_id = summoner["accountId"]
         ## Start with empty matchlist
         matchlist = self.api.match.matchlist_by_account(encrypted_account_id=account_id,
